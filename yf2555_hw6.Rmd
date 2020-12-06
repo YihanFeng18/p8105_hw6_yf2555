@@ -108,25 +108,112 @@ Make this comparison in terms of the cross-validated prediction error; use cross
 Note that although we expect your model to be reasonable, model building itself is not a main idea of the course and we don’t necessarily expect your model to be “optimal”.
 
 
-Find some residuals
+#### Import and clean the dataset. Check for missing values. 
 
-```{r}
-baby_df = 
-  read_csv("./data/birthweight.csv")
+```{r message=F}
+baby_df <-  
+  read_csv("./data/birthweight.csv") %>%
+  mutate(babysex = factor(case_when(babysex == 1 ~ "Male", 
+                                    babysex == 2 ~ "Female"), 
+                          levels = c("Male", "Female")),
+         dad_race = factor(case_when(frace == 1 ~ "White", 
+                                     frace == 2 ~ "Black",
+                                     frace == 3 ~ "Asian",
+                                     frace == 4 ~ "Puerto Rican",
+                                     frace == 8 ~ "Other",
+                                     frace == 9 ~ "Unknwon"
+                                     )),
+         mom_race = factor(case_when(mrace == 1 ~ "White", 
+                                     mrace == 2 ~ "Black",
+                                     mrace == 3 ~ "Asian",
+                                     mrace == 4 ~ "Puerto Rican",
+                                     mrace == 8 ~ "Other"
+                                     )),
+         malformation = factor(case_when(malform == 1 ~ "Present", 
+                                         malform == 0 ~ "Absent"),
+                               levels = c("Present", "Absent"))) %>%
+  select(-frace, -mrace, -malform)
+
+
+# check for missing values
+na <- baby_df %>%
+  summarize_all(funs(sum(is.na(.)))) %>%
+  knitr::kable()
 ```
 
-fit a model
+#### Fit a model between birthweight and number of cigerattes mom smoked per day during pregenancy
 
 ```{r}
-model_fit = lm(bwt ~ gaweeks, data = baby_df)
+gaweeks_model <- lm(bwt ~ gaweeks, data = baby_df)
 ```
+
 
 ```{r}
 baby_df %>% 
-  modelr::add_residuals(model_fit) %>% 
+  add_residuals(gaweeks_model) %>% 
+  add_predictions(gaweeks_model) %>%
   ggplot(aes(x = gaweeks, y = resid)) + 
-  geom_point()
+  geom_point() +
+  geom_smooth(method = "lm")
+  labs(title = "Residuals vs. Predicted Values for Birthweight Model",
+       x = "gestational age (week)",
+       y = "Residuals")
 ```
+
+
+#### Compare with other two models. 
+
+1. Build the two models: 
+
+* One using length at birth and gestational age as predictors (main effects only)
+* One using head circumference, length, sex, and all interactions (including the three-way interaction) between these
+
+
+```{r}
+lg_model <- lm(bwt ~ blength + gaweeks, data = baby_df)
+hls_model <- lm(bwt ~ bhead * blength * babysex, data = baby_df)
+```
+
+
+2. Cross Validation
+
+```{r}
+crossv_df <-
+  crossv_mc(baby_df, 100) %>%
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  ) %>%
+  mutate(
+    gaweeks_model = map(train, ~lm(bwt ~ gaweeks, data = .x)), 
+    lg_model = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    hls_model = map(train, ~lm(bwt ~ bhead + blength + babysex, data = .x))
+  ) %>%
+  mutate(
+    gaweeks_model_rmse = map2_dbl(gaweeks_model, test, ~rmse(model = .x, data = .y)),
+    lg_model_rmse = map2_dbl(lg_model, test, ~rmse(model = .x, data = .y)),
+    hls_model_rmse = map2_dbl(hls_model, test, ~rmse(model = .x, data = .y))
+    )
+```
+
+
+3. Visualization 
+
+```{r}
+crossv_df %>%
+  select(gaweeks_model_rmse, lg_model_rmse, hls_model_rmse) %>%
+  pivot_longer(everything(),
+             names_to = "model", 
+             values_to = "rmse") %>%
+  ggplot(aes(x = model, y = rmse)) +
+  geom_violin() +
+  labs(
+    title = "Birthweight Model Comparison",
+    x = "Models",
+    y = "RMSE"
+  )
+```
+
 
 ## Problem 3
 
