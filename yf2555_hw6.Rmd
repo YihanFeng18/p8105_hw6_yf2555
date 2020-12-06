@@ -4,10 +4,11 @@ author: "Yihan Feng"
 date: "12/4/2020"
 output: html_document
 ---
-```{r load_libraries}
+```{r load_libraries, include=F}
 library(tidyverse)
 library(modelr)
 library(p8105.datasets)
+library(broom)
 ```
 
 ### Problem 1
@@ -225,6 +226,8 @@ r^2
 log(β^0∗β^1)
 Use 5000 bootstrap samples and, for each bootstrap sample, produce estimates of these two quantities. Plot the distribution of your estimates, and describe these in words. Using the 5000 bootstrap estimates, identify the 2.5% and 97.5% quantiles to provide a 95% confidence interval for r^2 and log(β^0∗β^1). Note: broom::glance() is helpful for extracting r^2 from a fitted regression, and broom::tidy() (with some additional wrangling) should help in computing log(β^0∗β^1).
 
+#### Import the raw data and select the interested data
+
 ```{r}
 weather_df = 
   rnoaa::meteo_pull_monitors(
@@ -238,4 +241,58 @@ weather_df =
     tmax = tmax / 10) %>%
   select(name, id, everything())
 ```
+
+#### Bootstrap model
+
+```{r}
+bootstrap_df <-
+  weather_df %>%
+  bootstrap(n = 5000) %>%
+  mutate(model = map(strap, ~lm(tmax ~ tmin, data = .x)),
+         result = map(model, broom::tidy),
+         r_2 = map(model, broom::glance)) %>%
+  select(-strap, -model) %>%
+  unnest(result, r_2) %>%
+  select(.id, term, estimate, r.squared) %>%
+  pivot_wider(
+    names_from = term,
+    values_from = estimate
+  )
+
+bootstrap_df <- 
+  bootstrap_df %>%
+  rename(beta_0 = "(Intercept)", beta_1 = "tmin") %>%
+  mutate(log = log(beta_1 * beta_0))
+```
+
+
+#### Visualization of the estimates
+
+```{r}
+r_2_plot <- 
+  bootstrap_df %>%
+  ggplot(aes(x = r.squared)) + 
+  geom_density() +
+  labs(
+    title = "Distribution of R Squared",
+    x = "R Squared",
+    y = "Count")
+
+
+log_plot <-
+  bootstrap_df %>%
+  ggplot(aes(x = log)) +
+  geom_density() +
+  labs(
+    title = "Distribution of Log",
+    x = "Log(beta_0 * beta_1)",
+    y = "Count"
+  )
+
+
+r_2_plot
+log_plot
+```
+
+
 
